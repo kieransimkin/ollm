@@ -41,3 +41,21 @@ def test_cli_no_download_help(cmd):
     r=subprocess.run([sys.executable,'-m','ollm.bounded']+cmd,capture_output=True,text=True,
         env={**os.environ,'PYTHONPATH':str(Path(__file__).resolve().parents[2]/'src')})
     assert r.returncode==0,r.stderr
+
+
+def test_qwen3vl_requires_multimodal_qualification(make_checkpoint, tmp_path):
+    import torch
+    from ollm.bounded.budget import MemoryBudget
+    from ollm.bounded.model import load_bounded_model
+    from ollm.bounded.qualification import benchmark, benchmark_multimodal
+    p,_,_=make_checkpoint('qwen3_vl')
+    budget=MemoryBudget(max_visual_tokens=16,max_images=2,max_context_tokens=32,
+                        max_output_tokens=2,prefill_tokens=8,attention_block_tokens=4)
+    model=load_bounded_model(p,device='cpu',dtype=torch.float32,budget=budget)
+    with pytest.raises(ValueError,match='qualify-vl'):
+        benchmark(model,prompt_tokens=8,rounds=2)
+    report=benchmark_multimodal(model,rounds=2,report_path=tmp_path/'vl.json')
+    assert report['status']=='cpu_reference_only'
+    assert report['multimodal_qualification'] is True
+    assert report['max_observed_visual_tokens']==16
+    assert report['max_observed_images']==2

@@ -8,15 +8,15 @@ import torch
 from .api import BudgetInference
 from .budget import MemoryBudget
 from .config import MODELS
-from .model import BoundedModel
-from .qualification import benchmark
+from .model import BoundedModel, load_bounded_model
+from .qualification import benchmark, benchmark_multimodal
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='oLLM bounded text inference; no model is pre-certified below 8 GB')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('list', help='List implemented candidate checkpoints and their qualification status')
-    for command in ('inspect', 'generate', 'qualify'):
+    for command in ('inspect', 'generate', 'qualify', 'qualify-vl'):
         p = sub.add_parser(command)
         p.add_argument('model_dir', type=Path)
         p.add_argument('--model-key', choices=sorted(MODELS))
@@ -32,11 +32,13 @@ def main(argv=None):
         p.add_argument('--revision', help='Optional immutable HF revision for a requested download')
         if command == 'generate':
             p.add_argument('--prompt', default='Explain why expert streaming reduces GPU memory requirements.')
+            p.add_argument('--image', type=Path, action='append', help='Local image; repeat for multiple images')
             p.add_argument('--allow-unqualified', action='store_true')
             p.add_argument('--memory-profile', type=Path)
             p.add_argument('--temperature', type=float, default=0.)
-        elif command == 'qualify':
-            p.add_argument('--prompt-tokens', type=int, default=1024)
+        elif command in ('qualify', 'qualify-vl'):
+            if command == 'qualify':
+                p.add_argument('--prompt-tokens', type=int, default=1024)
             p.add_argument('--rounds', type=int, default=3)
             p.add_argument('--report', type=Path, required=True)
             p.add_argument('--hash-weights', action='store_true')
@@ -59,22 +61,30 @@ def main(argv=None):
     if args.command == 'generate':
         o = BudgetInference(args.model_dir, model_key=args.model_key, cache_dir=args.cache_dir,
                             allow_unqualified=args.allow_unqualified, memory_profile=args.memory_profile, **options)
-        print(o.generate([{'role': 'user', 'content': args.prompt}], max_new_tokens=budget.max_output_tokens,
+        content = args.prompt
+        if args.image:
+            content = ([{'type': 'image', 'image': str(path)} for path in args.image] +
+                       [{'type': 'text', 'text': args.prompt}])
+        print(o.generate([{'role': 'user', 'content': content}], max_new_tokens=budget.max_output_tokens,
                          temperature=args.temperature))
         print(json.dumps(o.model.last_report, indent=2), file=sys.stderr)
     else:
         if args.command == 'inspect':
             options['device'] = 'cpu'
-        model = BoundedModel(args.model_dir, expected_family=MODELS[args.model_key].family if args.model_key else None,
-                             cache_root=args.cache_dir, **options)
+        model = load_bounded_model(args.model_dir, expected_family=MODELS[args.model_key].family if args.model_key else None,
+                                   cache_root=args.cache_dir, **options)
         if args.command == 'inspect':
             print(json.dumps(dict(family=model.config.family, text_prefix=model.prefix,
                  checkpoint_tensors=len(model.store.tensors), validated_tensors=len(model.validated_names),
                  prefill_tokens=model.prefill_tokens, budget=budget.as_dict(), memory_qualified=False,
                  layout_digest=model.store.layout_fingerprint), indent=2))
         else:
-            report = benchmark(model, prompt_tokens=args.prompt_tokens, rounds=args.rounds,
-                               report_path=args.report, hash_weights=args.hash_weights)
+            if args.command == 'qualify-vl':
+                report = benchmark_multimodal(model, rounds=args.rounds, report_path=args.report,
+                                              hash_weights=args.hash_weights)
+            else:
+                report = benchmark(model, prompt_tokens=args.prompt_tokens, rounds=args.rounds,
+                                   report_path=args.report, hash_weights=args.hash_weights)
             print(json.dumps({k:v for k,v in report.items() if k not in ('driver_trace','cases')}, indent=2))
             return 0 if report['memory_pass'] else 2
     return 0

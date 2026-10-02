@@ -136,3 +136,13 @@ storage/RAM/throughput requirements. Include the GPU, dtype, context, output bud
 checkpoint revision and software identity. For tools, include multi-round real-model
 handoff tests and approval/security checks. CPU tests and metadata estimates alone do
 not meet that gate.
+
+
+## Multimodal qualification
+
+Qwen3-VL refuses the text-only `qualify` workload because it would not measure
+the vision tower. Use `qualify-vl`. The report must exercise the exact
+`max_visual_tokens`, `max_images`, context and output settings from the budget.
+Successful Qwen3-VL profiles carry `multimodal_qualification: true`; a text-only
+profile is rejected by `validate_profile`. Synthetic normalized patches are
+used so model GPU memory is measured independently of CPU image decoding.

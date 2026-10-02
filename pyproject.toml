@@ -27,11 +27,13 @@ tools = ["jsonschema>=4.23,<5"]
 mcp = ["jsonschema>=4.23,<5", "mcp>=1.30,<2"]
 gpt-oss-tools = ["jsonschema>=4.23,<5", "openai-harmony>=0.0.8,<1"]
 qwen-agent = ["jsonschema>=4.23,<5", "qwen-agent>=0.0.34,<0.1"]
+multimodal = ["pillow>=10,<13"]
 agents = [
     "jsonschema>=4.23,<5",
     "mcp>=1.30,<2",
     "openai-harmony>=0.0.8,<1",
     "qwen-agent[mcp]>=0.0.34,<0.1",
+    "pillow>=10,<13",
 ]
 test-tools = ["pytest>=8,<10", "jsonschema>=4.23,<5"]
 test-bounded = ["pytest>=8,<10", "safetensors>=0.5,<1", "jsonschema>=4.23,<5"]

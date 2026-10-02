@@ -140,3 +140,23 @@ def test_mapping_translation_and_strict_unknowns():
         config_from_mapping(config, {"stop": ["stop"]})
     with pytest.raises(ValueError):
         config_from_mapping(config, {"max_tokens": 1, "max_new_tokens": 2})
+
+
+def test_backend_uses_multimodal_preparation_hook():
+    torch = pytest.importorskip('torch')
+    class Model:
+        config = SimpleNamespace(family='qwen3_vl', max_position_embeddings=4096, vocab_size=100)
+        def __init__(self): self.kwargs=None
+        def generate(self, **kwargs):
+            self.kwargs=kwargs
+            return torch.cat([kwargs['input_ids'], torch.tensor([[4,9]])],dim=1)
+    class Inference:
+        model_id='qwen3-vl-2b-instruct'; device='cpu'; tokenizer=None
+        def __init__(self): self.model=Model(); self.called=False
+        def prepare_model_inputs(self,messages,tools,enable_thinking=False):
+            self.called=True
+            return torch.tensor([[1,2,3]]),[9],{'pixel_values':torch.ones(2,3),'image_grid_thw':torch.tensor([[1,1,2]])}
+    inf=Inference()
+    turn=InferenceBackend(inf,adapter=Adapter()).generate([{'role':'user','content':'x'}],[])
+    assert turn.content=='done' and inf.called
+    assert 'pixel_values' in inf.model.kwargs and 'image_grid_thw' in inf.model.kwargs

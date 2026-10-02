@@ -71,3 +71,10 @@ including the new Qwen Coder parameter-tag parser. Read the
 [bounded examples](examples/bounded/README.md) for invocation. Legacy inference
 remains unchanged. New checkpoints are unqualified candidates until measured
 on the actual GPU; native DeepSeek function calling is not claimed.
+
+
+### Qwen3-VL images
+
+The bounded runtime exposes `qwen3-vl-2b-instruct` to the same native tool/MCP
+loop. User messages may contain local `image` and `text` content blocks. Remote
+image URLs and video blocks are rejected. See [docs/qwen3_vl.md](docs/qwen3_vl.md).

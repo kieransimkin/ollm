@@ -7,5 +7,7 @@
   "attention_block_tokens": 256,
   "max_context_tokens": 4096,
   "max_output_tokens": 128,
-  "max_cache_bytes": 137438953472
+  "max_cache_bytes": 137438953472,
+  "max_visual_tokens": 4096,
+  "max_images": 4
 }

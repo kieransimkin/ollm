@@ -131,7 +131,7 @@ class StreamOps:
         return result
 
 
-def online_attention(query, blocks, positions, *, scale, value_dim, guard, window=None):
+def online_attention(query, blocks, positions, *, scale, value_dim, guard, window=None, causal=True):
     """Stable exact causal attention with bounded KV tiles and grouped heads.
 
     query [T,H,D]; blocks yields (absolute_start, K[S,KVH,D], V[S,KVH,V]).
@@ -147,9 +147,14 @@ def online_attention(query, blocks, positions, *, scale, value_dim, guard, windo
             raise ValueError("Invalid grouped attention cache")
         end = offset + keys.shape[0]
         key_pos = torch.arange(offset, end, device=query.device)
-        mask = key_pos[None, :] <= positions[:, None]
-        if window is not None:
-            mask &= key_pos[None, :] > positions[:, None] - window
+        if causal:
+            mask = key_pos[None, :] <= positions[:, None]
+            if window is not None:
+                mask &= key_pos[None, :] > positions[:, None] - window
+        else:
+            if window is not None:
+                raise ValueError("Non-causal bounded attention does not use a sliding window")
+            mask = torch.ones((t, keys.shape[0]), dtype=torch.bool, device=query.device)
         guard.workspace((keys.numel() + values.numel()) * 4 + t * keys.shape[0] * 16)
         ratio = heads // keys.shape[1]
         for h in range(heads):

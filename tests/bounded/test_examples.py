@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize('name',['chat','native_tools','mcp_tools','qwen_agent'])
+@pytest.mark.parametrize('name',['chat','native_tools','mcp_tools','qwen_agent','qwen3_vl','qwen3_vl_mcp'])
 def test_example_help_needs_no_model_or_sdk(name):
     root=Path(__file__).resolve().parents[2]
     result=subprocess.run([sys.executable,str(root/'examples'/'bounded'/(name+'.py')),'--help'],

@@ -80,3 +80,16 @@ The new execution path is conservative portable PyTorch, not a throughput claim.
 It deliberately does not depend on new Transformers model classes or change the
 legacy Transformers pin. Long contexts and hundreds-of-billion-parameter models
 can be dominated by repeated SSD reads even when their VRAM working set is small.
+
+
+## Bounded multimodal: Qwen3-VL-2B-Instruct
+
+The registry now includes `qwen3-vl-2b-instruct`. Its image path streams the
+vision transformer and uses tiled non-causal attention, CPU-held DeepStack
+features and three-axis MRoPE. Image workloads have explicit `max_visual_tokens`
+and `max_images` limits in `MemoryBudget`. Video is rejected pending a separate
+implementation and memory profile. See [docs/qwen3_vl.md](docs/qwen3_vl.md).
+
+Multimodal checkpoints cannot be certified by the text-only qualifier. Use
+`python -m ollm.bounded qualify-vl ...`; a matching multimodal CUDA profile is
+required for non-experimental execution.

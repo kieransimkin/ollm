@@ -101,3 +101,18 @@ The automated suite runs each script's `--help` without optional SDKs and tests 
 small synthetic safetensor decoders. It does not pretend to have run these commands
 with large pretrained weights, real SDK transports, or CUDA in the development
 container. See the delivered validation report and the qualification guide.
+
+
+## Qwen3-VL image examples
+
+```bash
+python examples/bounded/qwen3_vl.py ./models/qwen3-vl-2b \
+  --model-key qwen3-vl-2b-instruct --image ./photo.jpg --allow-unqualified
+
+python examples/bounded/qwen3_vl_mcp.py ./models/qwen3-vl-2b \
+  --model-key qwen3-vl-2b-instruct --image ./numbers.png --allow-unqualified
+```
+
+Images are local-only and constrained by the selected memory budget. Use
+`qualify-vl` before replacing the explicit experimental opt-in with a measured
+profile. Video is intentionally not enabled.

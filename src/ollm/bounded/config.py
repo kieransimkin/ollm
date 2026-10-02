@@ -21,6 +21,7 @@ MODELS: dict[str, ModelSpec] = {}
 for size in (4, 8, 14, 32):
     MODELS[f'qwen3-{size}b'] = ModelSpec(f'Qwen/Qwen3-{size}B', 'qwen3', thinking=None)
 MODELS['qwen3-4b-instruct-2507'] = ModelSpec('Qwen/Qwen3-4B-Instruct-2507', 'qwen3')
+MODELS['qwen3-vl-2b-instruct'] = ModelSpec('Qwen/Qwen3-VL-2B-Instruct', 'qwen3_vl')
 MODELS['qwen3-next-80b-thinking'] = ModelSpec('Qwen/Qwen3-Next-80B-A3B-Thinking', 'qwen3_next', thinking=True)
 MODELS['qwen3-next-80b-instruct'] = ModelSpec('Qwen/Qwen3-Next-80B-A3B-Instruct', 'qwen3_next')
 MODELS['qwen3-coder-next'] = ModelSpec('Qwen/Qwen3-Coder-Next', 'qwen3_next', 'qwen-coder')
@@ -57,7 +58,7 @@ for key, repo, family in (
 
 
 FAMILIES = {'qwen2', 'qwen3', 'qwen3_moe', 'llama', 'qwen3_next',
-            'qwen3_5', 'qwen3_5_moe', 'deepseek_v2', 'deepseek_v3'}
+            'qwen3_5', 'qwen3_5_moe', 'qwen3_vl', 'deepseek_v2', 'deepseek_v3'}
 
 
 class ModelConfig:
@@ -65,6 +66,8 @@ class ModelConfig:
         self.raw = copy.deepcopy(raw)
         self.data = copy.deepcopy(raw.get('text_config', raw))
         family = self.data.get('model_type', raw.get('model_type', '')).removesuffix('_text')
+        if raw.get('model_type') == 'qwen3_vl' and family == 'qwen3_vl':
+            family = 'qwen3_vl'
         if family not in FAMILIES:
             raise ValueError(f"No bounded implementation for {family!r}; no AutoModel fallback")
         if expected_family and family != expected_family:
@@ -72,7 +75,40 @@ class ModelConfig:
         self.family = family
         self.hybrid = family in ('qwen3_next', 'qwen3_5', 'qwen3_5_moe')
         self.deepseek = family.startswith('deepseek_')
+        self.multimodal = family == 'qwen3_vl'
         self.zero_centered_norm = self.hybrid
+        if self.multimodal:
+            if raw.get('model_type') != 'qwen3_vl' or not isinstance(raw.get('vision_config'), dict):
+                raise ValueError('Qwen3-VL requires the complete multimodal config')
+            for token_key in ('image_token_id', 'video_token_id', 'vision_start_token_id', 'vision_end_token_id'):
+                if type(raw.get(token_key)) is not int:
+                    raise ValueError(f'Missing/invalid {token_key}')
+            vr = raw['vision_config']
+            required_vision = ('depth', 'hidden_size', 'intermediate_size', 'num_heads',
+                               'num_position_embeddings', 'out_hidden_size', 'patch_size',
+                               'temporal_patch_size', 'spatial_merge_size', 'in_channels')
+            for key in required_vision:
+                if type(vr.get(key)) is not int or vr[key] < 1:
+                    raise ValueError(f'Missing/invalid vision dimension: {key}')
+            if vr['hidden_size'] % vr['num_heads']:
+                raise ValueError('Vision hidden size must be divisible by heads')
+            if int(math.isqrt(vr['num_position_embeddings'])) ** 2 != vr['num_position_embeddings']:
+                raise ValueError('Vision position embedding table must be square')
+            if vr.get('hidden_act') != 'gelu_pytorch_tanh':
+                raise ValueError('Only the validated Qwen3-VL GELU-tanh vision MLP is supported')
+            indexes = vr.get('deepstack_visual_indexes')
+            if (not isinstance(indexes, list) or not indexes or any(type(i) is not int or not 0 <= i < vr['depth'] for i in indexes)
+                    or sorted(set(indexes)) != indexes):
+                raise ValueError('Invalid DeepStack layer indexes')
+            if vr['out_hidden_size'] != self.data.get('hidden_size'):
+                raise ValueError('Vision output width must match text hidden size')
+            rope_cfg = self.data.get('rope_scaling') or {}
+            sections = rope_cfg.get('mrope_section')
+            if (rope_cfg.get('mrope_interleaved') is not True or not isinstance(sections, list)
+                    or len(sections) != 3 or any(type(v) is not int or v < 0 for v in sections)):
+                raise ValueError('Qwen3-VL requires validated interleaved MRoPE sections')
+            if sum(sections) * 2 != self.data.get('head_dim'):
+                raise ValueError('MRoPE sections must cover half the attention head')
         d = self.data
         for k in ('hidden_size', 'num_hidden_layers', 'num_attention_heads', 'vocab_size'):
             if type(d.get(k)) is not int or d[k] < 1:

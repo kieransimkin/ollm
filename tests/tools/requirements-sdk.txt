@@ -2,6 +2,9 @@
 # These integration tests were supplied but not executed in the authoring environment.
 pytest>=8,<10
 jsonschema>=4.23,<5
+# Qwen-Agent imports NumPy but does not declare it in this SDK release.
+# CI deliberately skips the base oLLM installation (which normally provides it).
+numpy>=1.26,<3
 mcp==1.30.0
 openai-harmony==0.0.8
 qwen-agent[mcp]==0.0.34

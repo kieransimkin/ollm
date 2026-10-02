@@ -13,6 +13,26 @@ torch.set_num_threads(1)
 
 
 def tiny_config(family='qwen3', **overrides):
+    if family == 'qwen3_vl':
+        text_overrides = {k: v for k, v in overrides.items() if k not in {'vision_config'}}
+        text = dict(model_type='qwen3_vl_text', hidden_size=16, intermediate_size=24,
+                    num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
+                    head_dim=4, vocab_size=41, max_position_embeddings=256,
+                    rms_norm_eps=1e-6, hidden_act='silu', tie_word_embeddings=False,
+                    eos_token_id=2, bos_token_id=1, attention_bias=False, rope_theta=10000.0,
+                    rope_scaling={'mrope_interleaved': True, 'mrope_section': [1, 1, 0], 'rope_type': 'default'})
+        # head_dim=4 => sum(mrope_section) must be 2.
+        text['rope_scaling']['mrope_section'] = [1, 1, 0]
+        text.update(text_overrides)
+        vision = dict(model_type='qwen3_vl', depth=3, hidden_size=8, intermediate_size=12,
+                      num_heads=2, num_position_embeddings=16, out_hidden_size=16,
+                      patch_size=2, temporal_patch_size=2, spatial_merge_size=2, in_channels=3,
+                      hidden_act='gelu_pytorch_tanh', deepstack_visual_indexes=[0, 1])
+        vision.update(overrides.get('vision_config', {}))
+        return dict(model_type='qwen3_vl', image_token_id=30, video_token_id=31,
+                    vision_start_token_id=32, vision_end_token_id=33,
+                    tie_word_embeddings=text.get('tie_word_embeddings', False),
+                    text_config=text, vision_config=vision)
     c = dict(model_type=family, hidden_size=16, intermediate_size=24,
              num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
              head_dim=4, vocab_size=41, max_position_embeddings=256,
@@ -124,6 +144,33 @@ def make_weights(raw, packed=False, prefix='model.'):
                 proj(a, 'shared_expert_gate', 1, h)
         else:
             mlp(a, c.intermediate_size)
+    if c.family == 'qwen3_vl':
+        v = raw['vision_config']
+        vp = 'model.visual.'
+        vh, vi = v['hidden_size'], v['intermediate_size']
+        weight(vp + 'patch_embed.proj.weight',
+               (vh, v['in_channels'], v['temporal_patch_size'], v['patch_size'], v['patch_size']))
+        weight(vp + 'patch_embed.proj.bias', (vh,))
+        weight(vp + 'pos_embed.weight', (v['num_position_embeddings'], vh))
+        for i in range(v['depth']):
+            b = vp + f'blocks.{i}.'
+            for norm in ('norm1', 'norm2'):
+                weight(b + norm + '.weight', (vh,), True)
+                weight(b + norm + '.bias', (vh,))
+            proj(b + 'attn.', 'qkv', 3 * vh, vh, True)
+            proj(b + 'attn.', 'proj', vh, vh, True)
+            proj(b + 'mlp.', 'linear_fc1', vi, vh, True)
+            proj(b + 'mlp.', 'linear_fc2', vh, vi, True)
+        group = vh * v['spatial_merge_size'] ** 2
+        def merger(base, post):
+            norm_width = group if post else vh
+            weight(base + 'norm.weight', (norm_width,), True)
+            weight(base + 'norm.bias', (norm_width,))
+            proj(base, 'linear_fc1', group, group, True)
+            proj(base, 'linear_fc2', v['out_hidden_size'], group, True)
+        merger(vp + 'merger.', False)
+        for j, _ in enumerate(v['deepstack_visual_indexes']):
+            merger(vp + f'deepstack_merger_list.{j}.', True)
     return tensors
 
 
@@ -134,6 +181,8 @@ def family_of(c):
 def checkpoint(path, family='qwen3', *, packed=False, sharded=False, prefix='model.', dtype=torch.float32, **overrides):
     path.mkdir(parents=True, exist_ok=True)
     c = tiny_config(family, **overrides)
+    if family == 'qwen3_vl' and prefix == 'model.':
+        prefix = 'model.language_model.'
     w = {k: v.to(dtype) for k, v in make_weights(c, packed=packed, prefix=prefix).items()}
     (path / 'config.json').write_text(json.dumps(c))
     if sharded:

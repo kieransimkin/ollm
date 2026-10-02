@@ -13,8 +13,9 @@ unqualified until the user measures a matching profile.
 This is a new functional decoder, not a thin wrapper around Transformers generation.
 There is no ordinary-model fallback, beam search, batching, training, PEFT, speculative
 /MTP decoding, cross-turn prefix reuse, distributed inference, custom attention masks,
-multimodal execution or automatic checkpoint-code execution. Unsupported options fail
-explicitly. Legacy `Inference` and its optimizations remain available separately.
+or automatic checkpoint-code execution. Qwen3-VL-2B has a separately implemented
+image-only multimodal path; video and other multimodal architectures remain unsupported.
+Unsupported options fail explicitly. Legacy `Inference` remains available separately.
 
 ## Shared memory infrastructure
 
@@ -87,15 +88,15 @@ Next uses its native packed, key-head-grouped QKVZ/BA ordering; Qwen3.5 uses sep
 QKV, Z, beta and decay projections. Both use causal depthwise convolution, L2-normalized
 Q/K, FP32 gated-DeltaNet recurrence, gated RMS normalization and the appropriate
 output projection. The three ordinary text positions used by Qwen3.5 MRoPE are equal,
-so the text-only computation reduces to text RoPE without loading the vision tower.
-Zero-centered normalization and partial RoPE are retained. Supported sigmoid and
-Swish attention output gates are explicitly distinguished.
+so the text-only computation reduces to text RoPE. Zero-centered normalization and
+partial RoPE are retained. Supported sigmoid and Swish attention output gates are
+explicitly distinguished.
 
 Layer types/configuration and tensors, not the marketing name, choose execution.
-Vision placeholder tokens are rejected. Vision and separate MTP tensors in multimodal
-checkpoints are not read; ordinary autoregressive text decoding does not invoke them.
-Unknown tensors in executed decoder layers are rejected. Configured DeepSeek appended
-MTP layers are recognized as unused, not silently treated as regular layers.
+Qwen3-VL has an explicit vision backend described in [qwen3_vl.md](qwen3_vl.md);
+other vision placeholders and separate MTP tensors remain rejected. Unknown tensors
+in executed decoder/vision layers are rejected. Configured DeepSeek appended MTP
+layers are recognized as unused, not silently treated as regular layers.
 
 ### DeepSeek
 

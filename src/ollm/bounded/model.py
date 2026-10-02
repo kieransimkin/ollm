@@ -230,6 +230,14 @@ class BoundedModel:
             yield lo, k, v
             del k, v
 
+    def _rotary_qk(self, q, k, position, n):
+        """Apply family positional encoding; returns causal token positions too."""
+        c = self.config
+        positions = torch.arange(position, position + n, device=q.device)
+        rotary_dim = int(c.head_dim * c.rope['partial_rotary_factor'])
+        return (rotary(q, positions, rotary_dim, c.rope),
+                rotary(k, positions, rotary_dim, c.rope), positions)
+
     def _attention(self, x, i, state, position):
         c = self.config
         base = self.prefix + f'layers.{i}.self_attn.'
@@ -244,10 +252,7 @@ class BoundedModel:
         v = self._linear(x, base, 'v_proj').reshape(n, kvh, dim)
         if c.family not in ('qwen2', 'llama'):
             q, k = self._norm(q, base + 'q_norm.weight'), self._norm(k, base + 'k_norm.weight')
-        positions = torch.arange(position, position + n, device=x.device)
-        rotary_dim = int(dim * c.rope['partial_rotary_factor'])
-        q = rotary(q, positions, rotary_dim, c.rope)
-        k = rotary(k, positions, rotary_dim, c.rope)
+        q, k, positions = self._rotary_qk(q, k, position, n)
         state.append((i, 'k'), k, position=position)
         state.append((i, 'v'), v, position=position)
         del k, v
@@ -376,15 +381,26 @@ class BoundedModel:
             result = result + shared
         return result
 
-    @torch.inference_mode()
-    def forward_tokens(self, tokens, state, position):
+    def _forward_embeds(self, x, state, position, *, visual_mask=None, deepstack=None):
+        """Run one bounded decoder chunk from already prepared embeddings.
+
+        `visual_mask` and `deepstack` are used only by implemented multimodal
+        subclasses. DeepStack features are injected after complete decoder
+        layers, matching Qwen3-VL rather than being folded into token embeddings.
+        """
         if position != state.position:
             raise ValueError("Cache session position does not match the input prefix")
-        if not tokens or len(tokens) > self.prefill_tokens:
-            raise ValueError("forward_tokens requires a nonempty bounded chunk")
-        if position < 0 or position + len(tokens) > min(self.config.max_position_embeddings, self.budget.max_context_tokens):
+        if x.ndim != 2 or not 0 < len(x) <= self.prefill_tokens:
+            raise ValueError("decoder embeddings must be a nonempty bounded chunk")
+        if position < 0 or position + len(x) > min(self.config.max_position_embeddings, self.budget.max_context_tokens):
             raise ValueError("Context limit exceeded")
-        x = self.ops.embedding(tokens, self.embedding_name)
+        if (visual_mask is None) != (deepstack is None):
+            raise ValueError("Visual mask and DeepStack features must be supplied together")
+        if visual_mask is not None:
+            if visual_mask.shape != (len(x),) or visual_mask.dtype != torch.bool:
+                raise ValueError("Invalid visual position mask")
+            if len(deepstack) > self.config.num_hidden_layers:
+                raise ValueError("Too many DeepStack injections")
         for i, kind in enumerate(self.config.layer_types):
             self.guard.check()
             base = self.prefix + f'layers.{i}.'
@@ -399,8 +415,22 @@ class BoundedModel:
             normalized = self._norm(x, base + 'post_attention_layernorm.weight')
             update = self._moe(normalized, i) if self.config.is_moe(i) else self._mlp(normalized, self.expert_refs[i])
             x = x + update
-        state.position = position + len(tokens)
+            if deepstack is not None and i < len(deepstack) and visual_mask.any():
+                feature = deepstack[i]
+                count = int(visual_mask.sum().item())
+                if feature.shape != (count, self.config.hidden_size):
+                    raise ValueError("DeepStack feature count/width does not match visual tokens")
+                x = x.clone()
+                x[visual_mask] = x[visual_mask] + feature.to(device=x.device, dtype=x.dtype)
+        state.position = position + len(x)
         return self._norm(x[-1:], self.prefix + 'norm.weight')
+
+    @torch.inference_mode()
+    def forward_tokens(self, tokens, state, position):
+        if not tokens or len(tokens) > self.prefill_tokens:
+            raise ValueError("forward_tokens requires a nonempty bounded chunk")
+        x = self.ops.embedding(tokens, self.embedding_name)
+        return self._forward_embeds(x, state, position)
 
     def logits(self, hidden):
         # Only the final required token is projected, in bounded vocabulary rows.
@@ -491,3 +521,15 @@ class BoundedModel:
                 return torch.tensor([tokens], dtype=torch.long, device=input_ids.device)
             except torch.cuda.OutOfMemoryError as exc:
                 raise MemoryBudgetError("CUDA OOM inside bounded execution; this profile is NOT qualified") from exc
+
+
+def load_bounded_model(root, *, config=None, expected_family=None, **kwargs):
+    """Select only explicitly implemented bounded architectures; no AutoModel fallback."""
+    raw = config or read_json(Path(root) / 'config.json')
+    parsed = ModelConfig(raw, expected_family)
+    if parsed.family == 'qwen3_vl':
+        from .qwen3_vl import Qwen3VLBoundedModel
+        cls = Qwen3VLBoundedModel
+    else:
+        cls = BoundedModel
+    return cls(root, config=raw, expected_family=expected_family, **kwargs)

@@ -39,7 +39,7 @@ actual chat template uses the parameter-tag format. New aliases are not evidence
 qualification. Config fields or tensor layouts outside the implemented semantics
 must be ported rather than bypassing validation.
 
-Full multimodal Qwen, Qwen4-exp/Flash-Next, DeepSeek V3.2's sparse indexer, DeepSeek
+Other multimodal Qwen variants, Qwen4-exp/Flash-Next, DeepSeek V3.2's sparse indexer, DeepSeek
 V4-family changes and GPT-OSS are **not** added to this new decoder. Existing GPT-OSS
 inference/tools remain unchanged. Unsupported architectures, quantization modes,
 unknown executed-layer weights and distributed-shard assumptions fail explicitly.
@@ -59,3 +59,15 @@ configuration and safetensor layout.
 
 Distillations are not the native DeepSeek flagship architecture. They remain explicitly
 identified as Qwen/Llama backbones in the registry. Native V2/V3 are separately implemented.
+
+
+## Qwen3-VL
+
+| Key | Architecture | Scope | Qualification |
+| --- | --- | --- | --- |
+| `qwen3-vl-2b-instruct` | Qwen3-VL dense text + 24-layer ViT | text + local images; video rejected | required (`qualify-vl`) |
+
+The image backend validates and executes the vision checkpoint rather than
+ignoring the tower. Patch embedding, learned position interpolation, visual
+RoPE, ViT blocks, mergers, DeepStack injection and interleaved MRoPE all use
+the bounded runtime. See [qwen3_vl.md](qwen3_vl.md).

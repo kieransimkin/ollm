@@ -23,6 +23,9 @@ class MemoryBudget:
     max_context_tokens: int = 32768
     max_output_tokens: int = 512
     max_cache_bytes: int = 128 * 1024**3
+    # Vision tokens are pre-merge ViT patches (not LLM image tokens).
+    max_visual_tokens: int = 4096
+    max_images: int = 4
 
     def __post_init__(self):
         for k, v in asdict(self).items():

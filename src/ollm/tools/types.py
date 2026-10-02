@@ -4,7 +4,9 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -135,11 +137,51 @@ class ToolResult:
         return wrapped(lo)
 
 
-def normalize_messages(messages: list[dict]) -> list[dict]:
-    """Validate text-only history and exact tool-call/result pairing.
+def _normalize_content(content, role):
+    if isinstance(content, str):
+        return content
+    if role != "user" or not isinstance(content, list) or not content:
+        raise ValueError("Structured multimodal content is supported only for nonempty user messages")
+    result = []
+    for raw in content:
+        if not isinstance(raw, dict) or not isinstance(raw.get("type"), str):
+            raise ValueError("Every multimodal content block must be an object with a type")
+        kind = raw["type"]
+        if kind == "text":
+            if set(raw) != {"type", "text"} or not isinstance(raw.get("text"), str):
+                raise ValueError("Text blocks require exactly a string text field")
+            result.append({"type": "text", "text": raw["text"]})
+        elif kind == "image":
+            allowed = {"type", "image", "resized_height", "resized_width", "min_pixels", "max_pixels"}
+            if set(raw) - allowed or "image" not in raw:
+                raise ValueError("Image block contains unsupported fields")
+            item = copy.deepcopy(raw)
+            image = item["image"]
+            if isinstance(image, os.PathLike):
+                image = os.fspath(image)
+            if isinstance(image, str):
+                if image.startswith(("http://", "https://", "data:")):
+                    raise ValueError("Bounded multimodal input does not fetch remote/data-URL images")
+                image = str(Path(image).expanduser().resolve(strict=True))
+            elif not type(image).__module__.startswith("PIL."):
+                raise ValueError("Image content must be a local path or a PIL image")
+            item["image"] = image
+            for key in ("resized_height", "resized_width", "min_pixels", "max_pixels"):
+                if key in item and (type(item[key]) is not int or item[key] < 1):
+                    raise ValueError(f"{key} must be a positive integer")
+            result.append(item)
+        elif kind == "video":
+            raise ValueError("Video blocks are not enabled in the bounded Qwen3-VL image profile")
+        else:
+            raise ValueError(f"Unsupported multimodal block type: {kind!r}")
+    return result
 
-    Function arguments use dictionaries internally (not JSON-encoded strings).
-    Qwen-Agent's legacy `function` messages are translated by its own adapter.
+
+def normalize_messages(messages: list[dict]) -> list[dict]:
+    """Validate history, multimodal user blocks and exact tool result pairing.
+
+    Structured image blocks are preserved for an explicitly multimodal backend;
+    no remote image URL is accepted. Function arguments remain dictionaries.
     """
     if not messages:
         raise ValueError("At least one conversation message is required")
@@ -150,11 +192,12 @@ def normalize_messages(messages: list[dict]) -> list[dict]:
         content = original.get("content", "")
         if content is None:
             content = ""
-        if not isinstance(content, str):
-            raise ValueError("The tool layer currently accepts text-only message content")
+        content = _normalize_content(content, role)
         if role in ("system", "developer"):
             if started:
                 raise ValueError("System/developer instructions must precede conversation messages")
+            if not isinstance(content, str):
+                raise ValueError("System/developer instructions must be text")
             instructions.append(content)
             continue
         started = True
@@ -162,6 +205,8 @@ def normalize_messages(messages: list[dict]) -> list[dict]:
             raise ValueError(f"Unsupported message role: {role!r}")
         if role != "tool" and pending:
             raise ValueError("Every tool call must receive a result before the next non-tool message")
+        if role in ("assistant", "tool") and not isinstance(content, str):
+            raise ValueError("Assistant and tool-result content must be text")
         item = {"role": role, "content": content}
         if role == "assistant":
             calls = original.get("tool_calls", [])

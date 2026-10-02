@@ -52,3 +52,10 @@ Model licenses and acceptable-use terms belong to their respective checkpoints a
 are not replaced by oLLM's source license. This patch does not redistribute weights.
 The CPU tests create small random fixtures locally. Reference-library tests use
 installed upstream packages rather than bundling their source implementations.
+
+
+### Qwen3-VL
+
+- Qwen3-VL-2B-Instruct configuration: https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct/blob/main/config.json
+- Transformers 4.57 implementation: https://github.com/huggingface/transformers/blob/v4.57.0/src/transformers/models/qwen3_vl/modeling_qwen3_vl.py
+- Model card: https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct

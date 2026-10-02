@@ -93,3 +93,16 @@ def test_lazy_root_unknown_attribute():
     with pytest.raises(AttributeError):
         ollm.not_an_attribute
     assert "Inference" in dir(ollm)
+
+
+def test_multimodal_user_content_is_local_only(tmp_path):
+    from ollm.tools.types import normalize_messages
+    image=tmp_path/'image.png'; image.write_bytes(b'not-decoded-here')
+    messages=[{'role':'user','content':[{'type':'image','image':str(image)},
+                                        {'type':'text','text':'describe this'}]}]
+    normalized=normalize_messages(messages)
+    assert normalized[0]['content'][0]['image']==str(image.resolve())
+    with pytest.raises(ValueError,match='remote'):
+        normalize_messages([{'role':'user','content':[{'type':'image','image':'https://example.com/x.png'}]}])
+    with pytest.raises(ValueError,match='Video'):
+        normalize_messages([{'role':'user','content':[{'type':'video','video':'x.mp4'}]}])

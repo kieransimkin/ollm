@@ -82,8 +82,18 @@ class InferenceBackend:
         import torch
         cfg = generation or self.generation
         with _GENERATION_LOCK:
-            prepared = self.adapter.prepare(messages, tools, self.inference.tokenizer,
-                reasoning_effort=cfg.reasoning_effort, enable_thinking=cfg.enable_thinking)
+            extra_model_inputs = {}
+            if hasattr(self.inference, "prepare_model_inputs") and getattr(self.inference.model.config, "family", None) == "qwen3_vl":
+                ids_tensor, stop_ids, extra_model_inputs = self.inference.prepare_model_inputs(
+                    messages, tools, enable_thinking=cfg.enable_thinking)
+                input_ids = ids_tensor[0].detach().cpu().tolist()
+                class _Prepared:
+                    pass
+                prepared = _Prepared()
+                prepared.input_ids, prepared.stop_ids = input_ids, stop_ids
+            else:
+                prepared = self.adapter.prepare(messages, tools, self.inference.tokenizer,
+                    reasoning_effort=cfg.reasoning_effort, enable_thinking=cfg.enable_thinking)
             if not prepared.input_ids or not prepared.stop_ids:
                 raise ValueError("Adapter returned empty prompt or stop-token list")
             model_config = self.inference.model.config
@@ -105,6 +115,7 @@ class InferenceBackend:
                 kwargs.update(temperature=cfg.temperature, top_p=cfg.top_p)
                 if cfg.top_k is not None:
                     kwargs["top_k"] = cfg.top_k
+            kwargs.update(extra_model_inputs)
             if self.cache_dir is not None:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
             cache_context = (TemporaryDirectory(prefix="ollm-agent-", dir=self.cache_dir)

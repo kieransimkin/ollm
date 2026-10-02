@@ -76,9 +76,30 @@ def test_real_mcp_streamable_http(tmp_path):
                 process.wait(timeout=10)
 
 
+def harmony_completion(adapter, *messages):
+    """Render actual completion tokens without hard-coding control spellings.
+
+    The model starts inside the assistant header prepared by Harmony. Strip
+    precisely that header prefix from a rendered conversation; the SDK emits
+    the correct handoff/final terminal token for the installed encoding.
+    """
+    h = adapter.harmony
+    enc = adapter.encoding
+    context = [h.Message.from_role_and_content(h.Role.USER, 'SDK fixture')]
+    prefix = enc.render_conversation_for_completion(
+        h.Conversation.from_messages(context), h.Role.ASSISTANT)
+    rendered = enc.render_conversation_for_training(
+        h.Conversation.from_messages(context + list(messages)),
+        config=h.RenderConversationConfig(auto_drop_analysis=False))
+    assert rendered[:len(prefix)] == prefix, 'Harmony completion prefix changed'
+    completion = rendered[len(prefix):]
+    assert completion and completion[-1] in enc.stop_tokens_for_assistant_actions()
+    return completion
+
+
 def test_real_harmony_render_parse_and_tool_roundtrip(pair_schema):
     require('openai_harmony')
-    from ollm.tools import GPTOSSAdapter, IncompleteGeneration
+    from ollm.tools import GPTOSSAdapter, IncompleteGeneration, ToolCallParseError
     adapter = GPTOSSAdapter()
     tools = [{'type': 'function', 'function': {'name': 'add', 'description': 'Add', 'parameters': pair_schema}}]
     history = [{'role': 'system', 'content': 'Use tools.'}, {'role': 'user', 'content': '17 + 25?'}]
@@ -86,20 +107,35 @@ def test_real_harmony_render_parse_and_tool_roundtrip(pair_schema):
     assert prepared.input_ids and prepared.stop_ids
     text = adapter.encoding.decode_utf8(prepared.input_ids)
     assert 'add' in text and '17 + 25?' in text
-    # The renderer ends with <|start|>assistant; completion begins in the header.
-    completion = adapter.encoding.encode(
-        ' to=functions.add<|meta_sep|>commentary<|im_sep|>{"a":17,"b":25}<|ghissue|>',
-        allowed_special='all')
+    h = adapter.harmony
+    completion = harmony_completion(adapter,
+        h.Message.from_role_and_content(h.Role.ASSISTANT, '{"a":17,"b":25}')
+        .with_recipient('functions.add').with_channel('commentary'))
     turn = adapter.parse(completion)
     assert turn.tool_calls[0].arguments == {'a': 17, 'b': 25}
     history += [turn.to_message(), {'role': 'tool', 'name': 'add',
                                   'tool_call_id': turn.tool_calls[0].id, 'content': '{"result":42}'}]
     continued = adapter.prepare(history, tools)
     assert '42' in adapter.encoding.decode_utf8(continued.input_ids)
-    final_ids = adapter.encoding.encode('<|meta_sep|>final<|im_sep|>42<|fim_suffix|>', allowed_special='all')
+    final_ids = harmony_completion(adapter,
+        h.Message.from_role_and_content(h.Role.ASSISTANT, '42').with_channel('final'))
     assert adapter.parse(final_ids).content == '42'
     with pytest.raises(IncompleteGeneration):
         adapter.parse(final_ids[:-1])
+    with pytest.raises(IncompleteGeneration):
+        adapter.parse(completion[:-1])
+
+    # The fix is in the fixture, not a relaxation of execution boundaries.
+    invalid_json = harmony_completion(adapter,
+        h.Message.from_role_and_content(h.Role.ASSISTANT, '{"a":')
+        .with_recipient('functions.add').with_channel('commentary'))
+    with pytest.raises(ToolCallParseError):
+        adapter.parse(invalid_json)
+    mixed = harmony_completion(adapter,
+        h.Message.from_role_and_content(h.Role.ASSISTANT, 'Checking the sum.').with_channel('analysis'),
+        h.Message.from_role_and_content(h.Role.ASSISTANT, '42').with_channel('final'))
+    turn = adapter.parse(mixed)
+    assert turn.content == '42' and turn.thinking == 'Checking the sum.'
 
 
 @pytest.mark.parametrize('mode', ['python', 'mcp'])
