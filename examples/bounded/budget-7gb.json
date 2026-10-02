@@ -1,0 +1,11 @@
+{
+  "vram_bytes": 7000000000,
+  "workspace_bytes": 134217728,
+  "weight_tile_bytes": 33554432,
+  "safety_bytes": 268435456,
+  "prefill_tokens": 64,
+  "attention_block_tokens": 256,
+  "max_context_tokens": 4096,
+  "max_output_tokens": 128,
+  "max_cache_bytes": 137438953472
+}

@@ -61,3 +61,13 @@ Unit/contract tests and CPU tensor tests were executed during development;
 real MCP/Harmony/Qwen-Agent SDK tests and model-weight tests are included as
 separate opt-in suites. See the testing guide for the distinction before
 using this with sensitive tools.
+
+
+## Additional Qwen and DeepSeek architectures
+
+The [bounded-memory extension](BOUNDED.md) adds an explicit `BudgetInference`
+backend. The native Python/MCP loop and this Qwen-Agent provider can use it,
+including the new Qwen Coder parameter-tag parser. Read the
+[bounded examples](examples/bounded/README.md) for invocation. Legacy inference
+remains unchanged. New checkpoints are unqualified candidates until measured
+on the actual GPU; native DeepSeek function calling is not claimed.

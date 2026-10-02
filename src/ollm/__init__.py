@@ -1,11 +1,12 @@
 """oLLM public API; heavy inference dependencies are loaded on first use."""
 from importlib import import_module
 
-__all__ = ["Inference", "AutoInference", "file_get_contents", "TextStreamer"]
+__all__ = ["Inference", "AutoInference", "file_get_contents", "TextStreamer", "BudgetInference", "MemoryBudget"]
 
 
 def __getattr__(name):
     modules = {
+        "BudgetInference": ".bounded", "MemoryBudget": ".bounded",
         "Inference": ".inference", "AutoInference": ".inference",
         "file_get_contents": ".utils", "TextStreamer": "transformers",
     }

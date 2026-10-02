@@ -34,6 +34,7 @@ agents = [
     "qwen-agent[mcp]>=0.0.34,<0.1",
 ]
 test-tools = ["pytest>=8,<10", "jsonschema>=4.23,<5"]
+test-bounded = ["pytest>=8,<10", "safetensors>=0.5,<1", "jsonschema>=4.23,<5"]
 
 [project.urls]
 "Homepage" = "https://github.com/Mega4alik/ollm"

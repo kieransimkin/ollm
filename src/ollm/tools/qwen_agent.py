@@ -127,6 +127,24 @@ class OllmChatModel(BaseChatModel):
         if cfg.get("cache_dir") or cfg.get("generate_cfg", {}).get("cache_dir"):
             raise ValueError("Response caching is not supported here; use kv_cache_dir for Qwen disk caching")
         super().__init__(cfg)
+        if backend is None and cfg.get("bounded") is not None:
+            from ollm import BudgetInference, MemoryBudget
+            import torch
+            options = dict(cfg["bounded"])
+            if cfg.get("download") or cfg.get("force_download"):
+                raise ValueError("Download bounded checkpoints explicitly with the ollm.bounded CLI first")
+            if "model_dir" not in options:
+                raise ValueError("bounded.model_dir is required")
+            model_dir = options.pop("model_dir")
+            key = options.pop("model_key", cfg["model"])
+            budget = MemoryBudget(**options.pop("budget", {}))
+            dtype = options.pop("dtype", "bfloat16")
+            if dtype not in ("float16", "bfloat16", "float32"):
+                raise ValueError("bounded.dtype must be float16, bfloat16 or float32")
+            inference = BudgetInference(model_dir, model_key=key,
+                device=cfg.get("device", "cuda:0"), dtype=getattr(torch, dtype),
+                budget=budget, cache_dir=cfg.get("kv_cache_dir"), **options)
+            backend = InferenceBackend(inference)
         if backend is None:
             models_dir = Path(cfg.get("models_dir", "./models/")).expanduser()
             download = cfg.get("download", False)

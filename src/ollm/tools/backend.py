@@ -55,10 +55,19 @@ class InferenceBackend:
     def __init__(self, inference, *, adapter=None, generation: GenerationConfig | None = None,
                  cache_dir: str | Path | None = None):
         self.inference = inference
+        if generation is None and getattr(inference, "bounded_runtime", False):
+            generation = GenerationConfig(max_new_tokens=min(512, inference.budget.max_output_tokens),
+                max_context_tokens=inference.budget.max_context_tokens,
+                enable_thinking=getattr(inference, "default_thinking", False) is True)
         self.generation = generation or GenerationConfig()
         model_id = getattr(inference, "model_id", "")
         if adapter is None:
-            if model_id == "qwen3-next-80B":
+            if getattr(inference, "bounded_runtime", False):
+                from .coder_adapter import QwenCoderAdapter, TextOnlyAdapter
+                formats = {"qwen-json": QwenAdapter, "qwen-coder": QwenCoderAdapter, "text": TextOnlyAdapter}
+                adapter = (TextOnlyAdapter(getattr(inference, "eos_token_ids", None))
+                           if inference.tool_format == "text" else formats[inference.tool_format]())
+            elif model_id == "qwen3-next-80B":
                 adapter = QwenAdapter()
             elif model_id == "gpt-oss-20B":
                 adapter = GPTOSSAdapter()
