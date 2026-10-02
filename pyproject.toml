@@ -21,6 +21,20 @@ dependencies = [
     "flash-attn" #tested: 2.7.4.post1
 ]
 
+[project.optional-dependencies]
+# The inference dependencies above are unchanged. These features are opt-in.
+tools = ["jsonschema>=4.23,<5"]
+mcp = ["jsonschema>=4.23,<5", "mcp>=1.30,<2"]
+gpt-oss-tools = ["jsonschema>=4.23,<5", "openai-harmony>=0.0.8,<1"]
+qwen-agent = ["jsonschema>=4.23,<5", "qwen-agent>=0.0.34,<0.1"]
+agents = [
+    "jsonschema>=4.23,<5",
+    "mcp>=1.30,<2",
+    "openai-harmony>=0.0.8,<1",
+    "qwen-agent[mcp]>=0.0.34,<0.1",
+]
+test-tools = ["pytest>=8,<10", "jsonschema>=4.23,<5"]
+
 [project.urls]
 "Homepage" = "https://github.com/Mega4alik/ollm"
 "Bug Tracker" = "https://github.com/Mega4alik/ollm/issues"

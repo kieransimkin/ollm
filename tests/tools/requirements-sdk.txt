@@ -1,0 +1,7 @@
+# Reproducible SDK compatibility target. Not a GPU/model lockfile.
+# These integration tests were supplied but not executed in the authoring environment.
+pytest>=8,<10
+jsonschema>=4.23,<5
+mcp==1.30.0
+openai-harmony==0.0.8
+qwen-agent[mcp]==0.0.34

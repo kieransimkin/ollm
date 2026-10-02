@@ -1,0 +1,48 @@
+name: Tool and MCP layers
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12']
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install lightweight tests and CPU tensor runtime
+        run: |
+          python -m pip install 'pytest>=8,<10' 'jsonschema>=4.23,<5'
+          python -m pip install 'torch>2.6' --index-url https://download.pytorch.org/whl/cpu
+      - name: Unit and contract tests (no models or optional SDKs)
+        run: python -m pytest -c pytest-tools.ini -m 'not sdk and not model' -q
+      - name: Syntax check
+        run: python -m compileall -q src/ollm/tools examples/tools tests/tools
+  sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: src
+      OLLM_RUN_SDK_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install real optional SDKs, not model weights
+        run: python -m pip install -r tests/tools/requirements-sdk.txt
+      - name: MCP transports, Harmony and Qwen-Agent integration tests
+        run: python -m pytest -c pytest-tools.ini -m sdk -q
